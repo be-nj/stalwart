@@ -81,7 +81,6 @@ pub(crate) async fn queued_message_set(
         }
 
         // Process patches
-        let prev_event = archived_message.inner.next_event(None);
         let mut message = map_message(archived_message.inner);
         message.next_retry = None;
         for (key, value) in value.into_expanded_object() {
@@ -102,6 +101,9 @@ pub(crate) async fn queued_message_set(
         // Process changes
         let mut has_changes = false;
         let mut queued_message = archived_message.deserialize()?;
+        // Keep the unmodified state around: its queue events are needed to
+        // re-index (save) or clear (remove) the per-queue event entries.
+        let prev_message = queued_message.clone();
         if queued_message.env_id.as_deref() != message.env_id.as_deref() {
             queued_message.env_id = message.env_id.as_deref().map(|v| v.into());
             has_changes = true;
@@ -189,16 +191,25 @@ pub(crate) async fn queued_message_set(
 
         if has_changes {
             // Delete message if there are no pending deliveries
-            let message = MessageWrapper::new(queued_message, queue_id, QueueName::default());
-            let is_success = if message.message.recipients.iter().any(|recipient| {
+            let has_pending_deliveries = queued_message.recipients.iter().any(|recipient| {
                 matches!(
                     recipient.status,
                     Status::TemporaryFailure(_) | Status::Scheduled
                 )
-            }) {
-                message.save_changes(set.server, prev_event).await
+            });
+            let is_success = if has_pending_deliveries {
+                // Management updates may patch recipients in any virtual
+                // queue, therefore the full message is persisted rather
+                // than merging the recipients of a single queue.
+                MessageWrapper::new(queued_message, queue_id, QueueName::default())
+                    .save_management_changes(set.server, prev_message.next_events())
+                    .await
             } else {
-                message.remove(set.server, prev_event).await
+                // Remove using the unmodified message, whose queue events
+                // still reference the per-queue entries to clear.
+                MessageWrapper::new(prev_message, queue_id, QueueName::default())
+                    .remove(set.server, None)
+                    .await
             };
 
             if !is_success {
