@@ -9,7 +9,10 @@ use crate::{
     utils::server::TestServerBuilder,
 };
 use registry::{
-    schema::structs::{Expression, ExpressionMatch, MtaExtensions, MtaStageAuth},
+    schema::structs::{
+        CertificateManagement, DkimManagement, DnsManagement, Domain, Expression, ExpressionMatch,
+        MtaExtensions, MtaStageAuth,
+    },
     types::list::List,
 };
 use smtp::core::State;
@@ -24,8 +27,21 @@ async fn auth() {
         .build()
         .await;
 
-    // Create test users
+    // Create a catch-all domain owned by John
     let admin = test.account("admin");
+    admin
+        .registry_create_object(Domain {
+            is_enabled: true,
+            name: "catchall.org".to_string(),
+            catch_all_address: Some("john@example.org".to_string()),
+            certificate_management: CertificateManagement::Manual,
+            dns_management: DnsManagement::Manual,
+            dkim_management: DkimManagement::Manual,
+            ..Default::default()
+        })
+        .await;
+
+    // Create test users
     for (name, secret, description, aliases) in [
         (
             "john@example.org",
@@ -37,7 +53,7 @@ async fn auth() {
             "jane@example.org",
             "abcde + extra safety",
             "Jane Smith",
-            &["jane@example.org"],
+            &["jane@example.org", "jane@catchall.org"],
         ),
     ] {
         admin
@@ -141,6 +157,15 @@ async fn auth() {
     session.mail_from("bill@foobar.org", "501 5.5.4").await;
     session.mail_from("john@example.org", "250").await;
     session.data.mail_from.take();
+
+    // Sub-addresses and addresses caught by a catch-all owned by the user are allowed,
+    // addresses of other accounts on the catch-all domain are not
+    session.mail_from("john+tag@example.org", "250").await;
+    session.data.mail_from.take();
+    session.mail_from("anything@catchall.org", "250").await;
+    session.data.mail_from.take();
+    session.mail_from("jane@catchall.org", "501 5.5.4").await;
+    session.mail_from("jane+tag@example.org", "501 5.5.4").await;
 
     // Should not be able to authenticate twice
     session
