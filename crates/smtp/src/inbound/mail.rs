@@ -243,12 +243,30 @@ impl<T: SessionStream> Session<T> {
                     .unwrap_or(true) =>
             {
                 let address_lcase = self.data.mail_from.as_ref().unwrap().address_lcase.as_str();
-                if authenticated_as != address_lcase
-                    && !self
-                        .authenticated_emails()
-                        .iter()
-                        .any(|e| e == address_lcase)
-                {
+                let is_allowed = authenticated_as == address_lcase
+                    || match self
+                        .server
+                        .is_account_address(
+                            self.data.authenticated_as.as_ref().unwrap(),
+                            address_lcase,
+                        )
+                        .await
+                    {
+                        Ok(is_allowed) => is_allowed,
+                        Err(err) => {
+                            trc::error!(
+                                err.caused_by(trc::location!())
+                                    .span_id(self.data.session_id)
+                                    .details("Failed to verify sender address.")
+                            );
+                            self.data.mail_from = None;
+                            return self
+                                .write(b"451 4.4.3 Unable to verify sender address.\r\n")
+                                .await;
+                        }
+                    };
+
+                if !is_allowed {
                     trc::event!(
                         Smtp(SmtpEvent::MailFromUnauthorized),
                         SpanId = self.data.session_id,

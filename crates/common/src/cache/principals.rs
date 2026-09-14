@@ -669,6 +669,26 @@ impl Server {
         }
     }
 
+    /// Returns whether the account may use `address` as a sender address, either because
+    /// it is one of the account's (or its groups') addresses, or because it resolves to the
+    /// account or one of its groups through sub-addressing or the domain's catch-all address.
+    pub async fn is_account_address(
+        &self,
+        account_info: &AccountInfo,
+        address: &str,
+    ) -> trc::Result<bool> {
+        if account_info.addresses().iter().any(|a| a == address) {
+            return Ok(true);
+        }
+
+        Ok(self
+            .account_id_from_email(address, true)
+            .await?
+            .is_some_and(|id| {
+                id == account_info.account_id() || account_info.account().id_member_of.contains(&id)
+            }))
+    }
+
     pub async fn account_info(&self, id: u32) -> trc::Result<AccountInfo> {
         let account = self.account(id).await?;
         self.build_account_info(account).await
