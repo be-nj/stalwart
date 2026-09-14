@@ -71,10 +71,10 @@ impl IdentitySet for Server {
 
             // Validate email address
             if !identity.email.is_empty() {
-                if !account_info
-                    .addresses()
-                    .iter()
-                    .any(|e| e == &identity.email)
+                if !self
+                    .is_account_address(&account_info, &identity.email)
+                    .await
+                    .caused_by(trc::location!())?
                 {
                     response.not_created.append(
                         id,

@@ -21,6 +21,7 @@ use jmap_client::{
     mailbox::Role,
 };
 use mail_parser::DateTime;
+use registry::schema::structs::{CertificateManagement, DkimManagement, DnsManagement, Domain};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -110,6 +111,36 @@ pub async fn test(test: &TestServer) {
     ));
     client.identity_destroy(&iid1).await.unwrap();
     client.identity_destroy(&iid2).await.unwrap();
+
+    // Sub-addresses and addresses caught by a catch-all owned by the account are allowed
+    test.account("admin@example.com")
+        .registry_create_object(Domain {
+            is_enabled: true,
+            name: "catchall.com".to_string(),
+            catch_all_address: Some("jdoe@example.com".to_string()),
+            certificate_management: CertificateManagement::Manual,
+            dns_management: DnsManagement::Manual,
+            dkim_management: DkimManagement::Manual,
+            ..Default::default()
+        })
+        .await;
+    for email in ["jdoe+tag@example.com", "anything@catchall.com"] {
+        let iid = client
+            .identity_create("John Doe", email)
+            .await
+            .unwrap()
+            .take_id();
+        client.identity_destroy(&iid).await.unwrap();
+    }
+    assert!(matches!(
+        client
+            .identity_create("Jane Smith", "jane.smith+tag@example.com")
+            .await,
+        Err(jmap_client::Error::Set(SetError {
+            type_: SetErrorType::InvalidProperties,
+            ..
+        }))
+    ));
 
     // Create an identity without using a valid address should fail
     match client
