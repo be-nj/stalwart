@@ -6,7 +6,7 @@
 
 use common::{Server, auth::AccessToken};
 use jmap_proto::request::capability::{
-    Account, Capabilities, Capability, EmptyCapabilities, Session,
+    Account, Capabilities, Capability, CatchAllSenderCapabilities, EmptyCapabilities, Session,
 };
 use registry::schema::enums::Permission;
 use std::future::Future;
@@ -55,10 +55,13 @@ impl SessionHandler for Server {
                     .unwrap_or_else(|| Capabilities::Empty(EmptyCapabilities::default())),
             );
         }
+        self.set_catch_all_sender_domains(access_token.account_id(), &mut account)
+            .await?;
         session.accounts.append(account_id, account);
 
         // Add secondary accounts
         for &account_id in access_token.secondary_ids() {
+            let document_id = account_id;
             let is_owner = access_token.is_member(account_id);
             let Some(account) = self
                 .try_account(account_id)
@@ -89,10 +92,46 @@ impl SessionHandler for Server {
                         .unwrap_or_else(|| Capabilities::Empty(EmptyCapabilities::default())),
                 );
             }
+            self.set_catch_all_sender_domains(document_id, &mut account)
+                .await?;
             session.accounts.append(account_id, account);
         }
 
         Ok(session)
+    }
+}
+
+trait CatchAllSender {
+    fn set_catch_all_sender_domains(
+        &self,
+        account_id: u32,
+        account: &mut Account,
+    ) -> impl Future<Output = trc::Result<()>> + Send;
+}
+
+impl CatchAllSender for Server {
+    async fn set_catch_all_sender_domains(
+        &self,
+        account_id: u32,
+        account: &mut Account,
+    ) -> trc::Result<()> {
+        if let Some(capabilities) = account
+            .account_capabilities
+            .get_mut(&Capability::CatchAllSender)
+        {
+            let account_info = self
+                .account_info(account_id)
+                .await
+                .caused_by(trc::location!())?;
+            *capabilities = Capabilities::CatchAllSender(CatchAllSenderCapabilities {
+                catch_all_domains: self
+                    .catch_all_sender_domains(&account_info)
+                    .await
+                    .caused_by(trc::location!())?,
+            });
+        }
+
+        Ok(())
     }
 }
 
@@ -109,7 +148,9 @@ impl AccountCapabilities for AccessToken {
                     Capability::Mail | Capability::MailShare | Capability::EmailPush => {
                         Permission::JmapEmailGet
                     }
-                    Capability::Submission => Permission::JmapEmailSubmissionCreate,
+                    Capability::Submission | Capability::CatchAllSender => {
+                        Permission::JmapEmailSubmissionCreate
+                    }
                     Capability::VacationResponse => Permission::JmapVacationResponseGet,
                     Capability::Contacts => Permission::JmapContactCardGet,
                     Capability::ContactsParse => Permission::JmapContactCardParse,
