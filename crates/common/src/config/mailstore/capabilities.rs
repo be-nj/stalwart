@@ -19,9 +19,10 @@ use jmap_proto::{
         file_node::{FileNodeComparator, FileNodeNodeType},
     },
     request::capability::{
-        BlobCapabilities, CalendarCapabilities, Capabilities, Capability, ContactsCapabilities,
-        CoreCapabilities, DataTypeMetadataInfo, EmptyCapabilities, FileNodeCapabilities,
-        MailCapabilities, MetadataCapabilities, PrincipalAvailabilityCapabilities,
+        BlobCapabilities, CalendarCapabilities, Capabilities, Capability,
+        CatchAllSenderCapabilities, ContactsCapabilities, CoreCapabilities, DataTypeMetadataInfo,
+        EmptyCapabilities, FileNodeCapabilities, MailCapabilities, MetadataCapabilities,
+        PrincipalAvailabilityCapabilities,
         PrincipalCapabilities, SieveAccountCapabilities, SieveSessionCapabilities,
         SubmissionCapabilities, WebPushCapabilities,
     },
@@ -365,6 +366,16 @@ impl JmapConfig {
                 Capabilities::Metadata(MetadataCapabilities { data_types }),
             );
         }
+
+        // Add catch-all sender capabilities (the domains are filled in per account)
+        self.capabilities.session.append(
+            Capability::CatchAllSender,
+            Capabilities::Empty(EmptyCapabilities::default()),
+        );
+        self.capabilities.account.insert(
+            Capability::CatchAllSender,
+            Capabilities::CatchAllSender(CatchAllSenderCapabilities::default()),
+        );
 
         // Add Web Push VAPID capabilities
         if let Some(application_server_key) = self

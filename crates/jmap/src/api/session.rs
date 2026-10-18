@@ -9,8 +9,8 @@ use common::{
     auth::{AccessToken, oauth::scope::OAuthScopes},
 };
 use jmap_proto::request::capability::{
-    Account, BaseCapabilities, Capabilities, Capability, CapabilityIds, EmptyCapabilities,
-    PrincipalOwnerCapabilities, Session,
+    Account, BaseCapabilities, Capabilities, Capability, CapabilityIds,
+    CatchAllSenderCapabilities, EmptyCapabilities, PrincipalOwnerCapabilities, Session,
 };
 use registry::schema::enums::Permission;
 use std::future::Future;
@@ -122,7 +122,7 @@ impl SessionHandler for Server {
             .caused_by(trc::location!())?;
         session.username = account.name().to_string();
         let account_id = Id::from(access_token.account_id());
-        let primary_account = self.jmap_account(
+        let mut primary_account = self.jmap_account(
             access_token,
             access_token.account_id(),
             account.name().to_string(),
@@ -136,6 +136,8 @@ impl SessionHandler for Server {
                 session.primary_accounts.append(capability, account_id);
             }
         }
+        self.set_catch_all_sender_domains(access_token.account_id(), &mut primary_account)
+            .await?;
         session.accounts.append(account_id, primary_account);
 
         // Add secondary accounts
@@ -152,10 +154,13 @@ impl SessionHandler for Server {
                 );
                 continue;
             };
-            session.accounts.append(
-                Id::from(account_id),
-                self.jmap_account(access_token, account_id, account.name().to_string()),
-            );
+            let mut secondary_account =
+                self.jmap_account(access_token, account_id, account.name().to_string());
+            self.set_catch_all_sender_domains(account_id, &mut secondary_account)
+                .await?;
+            session
+                .accounts
+                .append(Id::from(account_id), secondary_account);
         }
 
         if !session.accounts.values().any(|account| {
@@ -167,6 +172,40 @@ impl SessionHandler for Server {
         }
 
         Ok(session)
+    }
+}
+
+trait CatchAllSender {
+    fn set_catch_all_sender_domains(
+        &self,
+        account_id: u32,
+        account: &mut Account,
+    ) -> impl Future<Output = trc::Result<()>> + Send;
+}
+
+impl CatchAllSender for Server {
+    async fn set_catch_all_sender_domains(
+        &self,
+        account_id: u32,
+        account: &mut Account,
+    ) -> trc::Result<()> {
+        if let Some(capabilities) = account
+            .account_capabilities
+            .get_mut(&Capability::CatchAllSender)
+        {
+            let account_info = self
+                .account_info(account_id)
+                .await
+                .caused_by(trc::location!())?;
+            *capabilities = Capabilities::CatchAllSender(CatchAllSenderCapabilities {
+                catch_all_domains: self
+                    .catch_all_sender_domains(&account_info)
+                    .await
+                    .caused_by(trc::location!())?,
+            });
+        }
+
+        Ok(())
     }
 }
 
@@ -189,7 +228,9 @@ impl AccountCapabilities for AccessToken {
                     Capability::Mail | Capability::MailShare | Capability::EmailPush => {
                         Permission::JmapEmailGet
                     }
-                    Capability::Submission => Permission::JmapEmailSubmissionCreate,
+                    Capability::Submission | Capability::CatchAllSender => {
+                        Permission::JmapEmailSubmissionCreate
+                    }
                     Capability::VacationResponse => Permission::JmapVacationResponseGet,
                     Capability::Contacts => Permission::JmapContactCardGet,
                     Capability::ContactsParse => Permission::JmapContactCardParse,
@@ -236,7 +277,7 @@ pub fn capability_scopes(capability: Capability) -> OAuthScopes {
         | Capability::Metadata => OAuthScopes::INTEROPERABLE,
         Capability::Mail
         | Capability::Submission
-        | Capability::VacationResponse
+        | Capability::CatchAllSender
         | Capability::Sieve
         | Capability::MailShare
         | Capability::EmailPush => OAuthScopes::MAIL,
