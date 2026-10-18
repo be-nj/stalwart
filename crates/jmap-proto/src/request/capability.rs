@@ -95,6 +95,8 @@ pub enum Capability {
     WebPushVapid = 1 << 18,
     #[serde(rename(serialize = "urn:ietf:params:jmap:emailpush"))]
     EmailPush = 1 << 19,
+    #[serde(rename(serialize = "https://beckm4nn.net/jmap/catch-all-sender"))]
+    CatchAllSender = 1 << 20,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -124,6 +126,7 @@ pub enum Capabilities {
     Calendar(CalendarCapabilities),
     FileNode(FileNodeCapabilities),
     WebPush(WebPushCapabilities),
+    CatchAllSender(CatchAllSenderCapabilities),
     Empty(EmptyCapabilities),
 }
 
@@ -303,6 +306,12 @@ pub struct WebPushCapabilities {
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct CatchAllSenderCapabilities {
+    #[serde(rename(serialize = "catchAllDomains"))]
+    pub catch_all_domains: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct EmptyCapabilities {}
 
 #[derive(Default, Clone)]
@@ -334,6 +343,7 @@ impl Capability {
             Capability::Stalwart => "urn:stalwart:jmap",
             Capability::WebPushVapid => "urn:ietf:params:jmap:webpush-vapid",
             Capability::EmailPush => "urn:ietf:params:jmap:emailpush",
+            Capability::CatchAllSender => "https://beckm4nn.net/jmap/catch-all-sender",
         }
     }
 
@@ -358,6 +368,7 @@ impl Capability {
             Capability::Stalwart,
             Capability::WebPushVapid,
             Capability::EmailPush,
+            Capability::CatchAllSender,
         ]
     }
 }
@@ -480,6 +491,7 @@ impl Capability {
             "urn:stalwart:jmap" => Capability::Stalwart,
             "urn:ietf:params:jmap:webpush-vapid" => Capability::WebPushVapid,
             "urn:ietf:params:jmap:emailpush" => Capability::EmailPush,
+            "https://beckm4nn.net/jmap/catch-all-sender" => Capability::CatchAllSender,
         )
     }
 }

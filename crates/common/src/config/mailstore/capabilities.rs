@@ -10,10 +10,11 @@ use calcard::icalendar::ICalendarDuration;
 use jmap_proto::{
     object::{email::EmailComparator, file_node::FileNodeComparator},
     request::capability::{
-        BlobCapabilities, CalendarCapabilities, Capabilities, Capability, ContactsCapabilities,
-        CoreCapabilities, EmptyCapabilities, FileNodeCapabilities, MailCapabilities,
-        PrincipalAvailabilityCapabilities, PrincipalCapabilities, SieveAccountCapabilities,
-        SieveSessionCapabilities, SubmissionCapabilities, WebPushCapabilities,
+        BlobCapabilities, CalendarCapabilities, Capabilities, Capability,
+        CatchAllSenderCapabilities, ContactsCapabilities, CoreCapabilities, EmptyCapabilities,
+        FileNodeCapabilities, MailCapabilities, PrincipalAvailabilityCapabilities,
+        PrincipalCapabilities, SieveAccountCapabilities, SieveSessionCapabilities,
+        SubmissionCapabilities, WebPushCapabilities,
     },
     types::date::UTCDate,
 };
@@ -304,6 +305,16 @@ impl JmapConfig {
         self.capabilities.account.insert(
             Capability::EmailPush,
             Capabilities::Empty(EmptyCapabilities::default()),
+        );
+
+        // Add catch-all sender capabilities (the domains are filled in per account)
+        self.capabilities.session.append(
+            Capability::CatchAllSender,
+            Capabilities::Empty(EmptyCapabilities::default()),
+        );
+        self.capabilities.account.insert(
+            Capability::CatchAllSender,
+            Capabilities::CatchAllSender(CatchAllSenderCapabilities::default()),
         );
 
         // Add Web Push VAPID capabilities

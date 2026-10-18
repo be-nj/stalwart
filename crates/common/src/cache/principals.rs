@@ -689,6 +689,37 @@ impl Server {
             }))
     }
 
+    /// Returns the names (including aliases) of every domain whose catch-all address resolves
+    /// to the account or one of its groups, i.e. the domains on which `is_account_address`
+    /// accepts any local part.
+    pub async fn catch_all_sender_domains(
+        &self,
+        account_info: &AccountInfo,
+    ) -> trc::Result<Vec<String>> {
+        let domain_ids = self
+            .registry()
+            .query::<Vec<Id>>(
+                RegistryQuery::new(ObjectType::Domain).with_tenant(account_info.tenant_id()),
+            )
+            .await
+            .caused_by(trc::location!())?;
+
+        let mut domains = Vec::new();
+        for domain_id in domain_ids {
+            if let Some(domain) = self.domain_by_id(domain_id.document_id()).await?
+                && let Some(catch_all) = &domain.catch_all
+                && let Some(EmailCache::Account(id)) = self.rcpt_id_from_email(catch_all).await?
+                && (id == account_info.account_id()
+                    || account_info.account().id_member_of.contains(&id))
+            {
+                domains.extend(domain.names.iter().map(|name| name.to_string()));
+            }
+        }
+        domains.sort_unstable();
+
+        Ok(domains)
+    }
+
     pub async fn account_info(&self, id: u32) -> trc::Result<AccountInfo> {
         let account = self.account(id).await?;
         self.build_account_info(account).await

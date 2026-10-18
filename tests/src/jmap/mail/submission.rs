@@ -142,6 +142,21 @@ pub async fn test(test: &TestServer) {
         }))
     ));
 
+    // The session lists the catch-all domains only for the account they resolve to
+    for (name, domains) in [
+        ("jdoe@example.com", vec!["catchall.com"]),
+        ("jane.smith@example.com", vec![]),
+    ] {
+        let account = test.account(name);
+        assert_eq!(
+            account.jmap_session_object().await.0["accounts"][account.id_string()]
+                ["accountCapabilities"]["https://beckm4nn.net/jmap/catch-all-sender"]
+                ["catchAllDomains"],
+            serde_json::json!(domains),
+            "{name}"
+        );
+    }
+
     // Create an identity without using a valid address should fail
     match client
         .identity_create("John Doe", "someaddress@domain.com")
