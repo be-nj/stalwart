@@ -278,6 +278,7 @@ pub fn capability_scopes(capability: Capability) -> OAuthScopes {
         Capability::Mail
         | Capability::Submission
         | Capability::CatchAllSender
+        | Capability::VacationResponse
         | Capability::Sieve
         | Capability::MailShare
         | Capability::EmailPush => OAuthScopes::MAIL,
